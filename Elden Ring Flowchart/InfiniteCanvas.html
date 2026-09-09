@@ -1,0 +1,717 @@
+<!-- 8/30/2026 - completed nodes are properly aligned and change in size appropriately -->
+
+<!DOCTYPE html>
+<html lang = "en">
+    <head>
+        <meta charset = "UTF-8">
+        <meta name = "viewport" content = "width = device-width, initial-scale = 1.0">
+        <title>Elden Ring Flowchart</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            
+            /**Everything here is CSS styling.**/
+
+            body, html {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                font-family: system-ui, -apple-system, sans-serif;
+                background-color: #f8fafc;
+            }
+
+            /* UI Styling */
+            #ui-overlay {
+                position: absolute;
+                top: 16px;
+                left: 16px;
+                z-index: 10;
+                background: rgba(255, 255, 255, 0.9);
+                padding: 12px 16px;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(4px);
+                pointer-events: auto;
+            }
+            h1 {
+                font-size: 16px;
+                margin-bottom: 4px;
+                color: #1e293b;
+            }
+            p {
+                font-size: 12px;
+                color: #64748b;
+                line-height: 1.4;
+            }
+            
+            /* Viewport Styling */
+            #viewport {
+                width: 100vw;
+                height: 100vh;
+                display: block;
+                cursor: grab;
+                user-select: none;
+            }
+            #viewport:active {
+                cursor: grabbing;
+            }
+
+
+            /* Shape styling. */
+            .node {
+                fill: #6d6c65;
+                stroke: #9e8e50;
+                stroke-width: 2px;
+                rx: 6px;
+            }
+            .node-element:hover {
+                stroke: #2563eb;
+                filter: drop-shadow(0px 0px 20px rgba(0, 0, 0, 0.60));
+            }
+            .node-element foreignObject {
+                pointer-events: none;
+            }
+            .node-element foreignObject > div {
+                pointer-events: auto !important;
+                user-select: text;
+                -webkit-user-select: text;
+            }
+            .node-element foreignObject > div h3,
+            .node-element foreignObject > div p {
+                cursor: text;
+            }
+            .node-text {
+                cursor: text;
+                fill: #000000;
+                font-size: 300px;
+                font-weight: 500;
+                text-anchor: middle;
+                text-align: center;
+                dominant-baseline: middle;
+            }
+
+        </style>
+
+
+
+
+
+
+    </head>   
+    <body>
+
+
+        <!--- // HTML Elements // --->
+
+        <div id = "ui-overlay"> 
+            <h1>Canvas Controls</h1>
+            <p> <b>Pan:</b> Click and Drag</p>
+            <p> <b>Zoom:</b> Scroll Wheel </p>
+            <p> <b>Interact</b> Drag Nodes </p>
+        </div>
+
+        <svg id = "viewport">
+
+            <rect id = "background" width = "100%" height = "100%" fill = "#262626" pointer-events = "none"/>
+            
+            <g id = "canvas-content">
+                <g id = "nodes-group">
+                    <!-- Node data injected here by JavaScript at run time-->
+                </g>
+            </g>
+        </svg>
+
+
+
+
+
+
+
+        <!--- // Beginning of main script // --->
+
+        <script type = "module">
+
+            import {nodeData, nodeConnections} from './Elden Ring Node Data.js';
+
+            
+            // --- Application States --- //
+            // Referencing these requires using "state.____"
+
+            const state = {
+                // Camera States
+                scale: 1.0,
+                translateX: 0,
+                translateY: 0,
+
+                // Interaction States
+                isPanning: false,
+                isDraggingNode: false,
+                panStartX: 0,
+                panyOffStart: 0,
+
+                // Node States
+                firstNodeDrawn: false,
+                primaryNode: null,
+                nodeOffsetX: 0,
+                nodeOffsetY: 0
+            };
+            
+            // --- Data Arrangement Units --- //
+            const vUnit = 360;
+            const hUnit = 680;
+
+
+
+            // Assign DOM (document object model) elements
+            const viewport = document.getElementById('viewport');
+            const gridPattern = document.getElementById('grid');
+            const canvasContent = document.getElementById('canvas-content');
+            const nodeArray = document.getElementById('nodes-group');
+                        
+            const centerX = (window.innerWidth / 2);
+            const centerY = (window.innerHeight / 2);
+
+            const primaryNodeWidth = 740;
+            const primaryNodeHeight = 800;
+            const secondaryNodeWidth = 300;
+            const secondaryNodeHeight = 210;
+
+            const primTitleSize = 30;
+            const primTitleMarginTop = 22;
+            const primTitleMarginBottom = 16;
+            const primTitleCursor = "text";
+
+            const secTitleSize = 18;
+            const secTitleMarginTop = 10;
+            const secTitleMarginBottom = 6;
+            const secTitleCursor = "pointer";
+
+            const primImgBorderRadius = 10;
+            const primImgCursor = "default";
+            const secImgBorderRadius = 6;
+            const secImgCursor = "pointer";
+
+            const primDescVis = "visible";
+            const secDescVis = "hidden";
+
+            const imageSizeFactor = 0.93;
+            const primaryImageWidth = primaryNodeWidth * imageSizeFactor;
+            const primaryImageHeight = primaryNodeHeight * imageSizeFactor;
+            const secImageWidth = secondaryNodeWidth * imageSizeFactor;
+            const secImageHeight = secondaryNodeHeight * imageSizeFactor;
+
+            const primCenterX = primaryNodeWidth / 2;
+            const primCenterY = primaryNodeHeight / 2;
+            const secCenterX = secondaryNodeWidth / 2;
+            const secCenterY = secondaryNodeHeight / 2;
+            
+            let primaryID = '1';
+
+
+            // Initializes nodes, their styles, and adds information from the array
+            function buildNodes() {
+                
+                const nameSpace = "http://www.w3.org/2000/svg";
+
+                nodeData.forEach(node => {
+
+                    // Grab the primaryID, or set to Marika if none yet
+                    primaryID = state.primaryNode? primaryNode.getAttribute('id'): '1';
+
+                    // Calculate coordinate offset in advance, based on units
+                    const xCalc = node.x * hUnit;
+                    const yCalc = node.y * vUnit;
+
+                    // Every node has these attributes.
+                    const g = document.createElementNS(nameSpace, "g");
+                    g.setAttribute("class", "node-element");
+                    g.setAttribute("id", node.id);
+                    g.setAttribute("title", node.title);
+                    g.setAttribute("image", node.image);
+                    g.setAttribute("x-offset", (xCalc));
+                    g.setAttribute("y-offset", (yCalc));
+                    g.style.opacity = 0.4;
+
+                    // console.log("x: ", xCalc, ", y: ", yCalc);
+
+
+
+                    // Calculate position based on primary or secondary
+                    const xPos = g.getAttribute('id') === primaryID ? primCenterX + parseFloat(xCalc) : secCenterX + parseFloat(xCalc);
+                    const yPos = g.getAttribute('id') === primaryID ? primCenterY + parseFloat(yCalc) : secCenterY + parseFloat(yCalc);
+
+                    // Create the invisible group of nodes at the canvas center, and offset to account for anchor position
+                    g.setAttribute('transform', `translate(${centerX - xPos}, ${centerY - yPos})`);
+
+                    // Assign dimensions based on node priority
+                    const rect = document.createElementNS(nameSpace, "rect");
+                    rect.setAttribute("class", "node");
+                    rect.setAttribute("width", node.id === primaryID? primaryNodeWidth : secondaryNodeWidth);
+                    rect.setAttribute("height", node.id === primaryID? primaryNodeHeight : secondaryNodeHeight);
+                    g.appendChild(rect);
+
+                    // Creates a parent element for the HTML wrapper
+                    const foreignObject = document.createElementNS(nameSpace, "foreignObject");
+                    foreignObject.setAttribute("width", node.id === primaryID? primaryNodeWidth : secondaryNodeWidth);
+                    foreignObject.setAttribute("height", node.id === primaryID? primaryNodeHeight : secondaryNodeHeight);
+
+                    // An HTML Wrapper for grouping text as its own element
+                    const htmlWrapper = document.createElement("div");
+                    htmlWrapper.style.fontFamily = "sans-serif";
+                    htmlWrapper.style.color = "#1e293b";
+                    htmlWrapper.style.display = "block";
+                    htmlWrapper.style.pointerEvents = "none"; // Keeps click-dragging responsive
+                    
+                    htmlWrapper.innerHTML = `
+                        <h3 style = "font-size: ${node.id === primaryID? `${primTitleSize}px` : `${secTitleSize}px`};
+                            margin-top: ${node.id === primaryID? `${primTitleMarginTop}px` : `${secTitleMarginTop}px`};
+                            margin-bottom: ${node.id === primaryID? `${primTitleMarginBottom}px` : `${secTitleMarginBottom}px`};
+                            text-align: center;
+                            font-weight: bold;
+                            color: #ffffff;
+                            cursor: ${node.id === primaryID? primTitleCursor: secTitleCursor};">
+                            ${node.title}
+                        </h3>
+
+                        <img src = "${node.image}"
+                            alt = ""
+                            style = "max-width: ${node.id === primaryID? primaryImageWidth : secImageWidth}px; max-height: ${node.id === primaryID? primaryImageHeight : secImageHeight}px;
+                            object-fit: scale-down;
+                            display: block;
+                            margin: auto;
+                            border-style: double;
+                            border-radius: ${node.id === primaryID? `${primImgBorderRadius}px` : `${secImgBorderRadius}px`};
+                            flex-shrink: 0;
+                            cursor: ${node.id === primaryID? primImgCursor : secImgCursor};">
+                        </img>
+                        
+                        <p style = "font-size: 18px;
+                            margin-top: 26px;
+                            margin-left: 40px;
+                            margin-right: 40px;
+                            color: #ffffff;
+                            visibility: ${node.id === primaryID? primDescVis : secDescVis};
+                            cursor: text;">
+                            ${node.desc}
+                        </p>
+                    `;
+
+
+                    // Assemble the DOM component chain
+                    foreignObject.appendChild(htmlWrapper);
+                    g.appendChild(foreignObject);
+                    nodeArray.appendChild(g);
+                });
+
+                state.primaryNode = nodeArray.querySelector(`[id = '1']`);
+            }
+
+
+
+
+
+
+
+            // --- Render Canvas Transforms --- //
+
+            function switchPrimary(newNode) {
+                // Grab the old primary node
+                const oldPrimary = state.primaryNode;
+                
+                // If the click is not empty space, and not already the primary node...
+                if (oldPrimary && newNode !== state.primaryNode) {
+                    // Reassign primary as the clicked node
+                    state.primaryNode = newNode;
+
+                    // Swing camera over to the node
+                    // state.translateX = state.primaryNode.getAttribute('x-offset');
+                    // state.translateY = state.primaryNode.getAttribute('y-offset');
+                    // state.scale = 1;
+                    // updateTransforms();
+
+                    // Send the old node to the animation chamber......
+                    changeNodeSize(oldPrimary);
+                }
+            }
+
+            function changeNodeSize(oldPrimary) {
+
+                
+                // Store the reference to the old primary node
+                const oPrimData = oldPrimary;
+
+                const duration = 300; // The # of milliseconds that the animation will occur over.
+                const startTime = 0;
+
+                requestAnimationFrame((t) => animateOneStep(t, duration, startTime, oPrimData));
+                
+            }
+
+            function animateOneStep(currentTime, duration, startTime, oPrimData) {
+
+                // console.log("Animating one step: currentTime = ", currentTime);
+
+                if (startTime == 0) {
+                    startTime = currentTime;
+                }
+
+                const passedTimeMS = currentTime - startTime;
+                const progressPercent = passedTimeMS / duration;
+
+                // console.log("Animation progress: ", progressPercent * 100, "%");
+
+
+
+                // Damping function for lowering progressive increments as progess furthers
+                const dampingFunction = progressPercent * (2 - progressPercent);
+
+
+
+
+                // Calculate old node's decreasing dimensions using the damping function
+
+                const dampedWidthDecrement = dampingFunction * (secondaryNodeWidth - primaryNodeWidth);
+                const dampedHeightDecrement = dampingFunction * (secondaryNodeHeight - primaryNodeHeight);
+
+                // Calculate the new node's increasing dimensions with the damping function
+                const dampedWidthIncrement = dampingFunction * (primaryNodeWidth - secondaryNodeWidth);
+                const dampedHeightIncrement = dampingFunction * (primaryNodeHeight - secondaryNodeHeight);
+
+                
+                // Interpolate the old primary node's new dimensions based on the decrements
+                const oldPrimWidth = primaryNodeWidth + dampedWidthDecrement;
+                const oldPrimHeight = primaryNodeHeight + dampedHeightDecrement;
+
+                // Interpolate the new primary node's new dimensions based on the increments
+                const newPrimWidth = secondaryNodeWidth + dampedWidthIncrement;
+                const newPrimHeight = secondaryNodeHeight + dampedHeightIncrement;
+
+                reduceOldPrimary(oPrimData, oldPrimWidth, oldPrimHeight, dampingFunction);
+                augmentNewPrimary(newPrimWidth, newPrimHeight, dampingFunction);
+                renderPrimaryConnections();
+                
+
+                if (progressPercent < 1.0) {
+                    requestAnimationFrame((t) => animateOneStep(t, duration, startTime, oPrimData));
+                }
+            }
+
+            function reduceOldPrimary(oPrimData, oldPrimWidth, oldPrimHeight, dampingFunction) {
+
+                oPrimData.width = oldPrimWidth;
+                oPrimData.height = oldPrimHeight;
+
+
+                // Update node structural dimensions
+                const oldNodeRect = oPrimData.querySelector('.node');
+
+                oldNodeRect.setAttribute('width', oPrimData.width);
+                oldNodeRect.setAttribute('height', oPrimData.height);
+
+
+                // Update interior dimensions
+                const parentElement = oPrimData.querySelector('foreignObject');
+                
+                parentElement.setAttribute('width', oPrimData.width);
+                parentElement.setAttribute('height', oPrimData.height);
+
+                
+                // Interpolate transform
+                const xOffStart = parseFloat(oPrimData.getAttribute('x-offset'));
+                const yOffStart = parseFloat(oPrimData.getAttribute('y-offset'));
+
+                // The starting relative coordinates of any primary node
+                const initX = centerX - primCenterX;
+                const initY = centerY - primCenterY;
+
+                // The final relative coordinates when it is a secondary node
+                const goalX = centerX - secCenterX;
+                const goalY = centerY - secCenterY;
+
+                // Tracks remaining deltaX and deltaY
+                const remainingX = goalX - initX;
+                const remainingY = goalY - initY;
+
+                // New coordinates calculated based on a damped increment toward the remaining delta X and Y
+                const currentX = (initX) + (dampingFunction * remainingX);
+                const currentY = (initY) + (dampingFunction * remainingY);
+
+                //console.log("Current X: ", currentX);
+                //console.log("Damping factor: ", dampingFunction);
+
+                // Set coordinates and account for inherent offsets
+                oPrimData.setAttribute('transform', `translate(${(currentX) - xOffStart}, ${(currentY) - yOffStart})`);
+
+
+                // Make title smaller
+                const titleElement = parentElement.querySelector('foreignObject h3');
+                titleElement.style.fontSize = `${secTitleSize}px`;
+                titleElement.style.marginTop = `${secTitleMarginTop}px`;
+                titleElement.style.marginBottom = `${secTitleMarginBottom}px`;
+                titleElement.style.cursor = secTitleCursor;
+                
+
+                // Update image styling
+                const imgElement = parentElement.querySelector('foreignObject img');
+                imgElement.style.maxWidth = `${secImageWidth}px`;
+                imgElement.style.maxHeight = `${secImageHeight}px`;
+                imgElement.style.borderRadius = `${secImgBorderRadius}px`;
+                imgElement.style.cursor = secImgCursor;
+
+
+                // Hide description
+                const descElement = parentElement.querySelector('foreignObject p');
+                descElement.style.visibility = secDescVis;
+            }
+
+            function augmentNewPrimary(newPrimWidth, newPrimHeight, dampingFunction) {
+
+                const newPrim = state.primaryNode;
+
+                newPrim.width = newPrimWidth;
+                newPrim.height = newPrimHeight;
+                
+
+                // Update node structural dimensions
+                const newNodeRect = newPrim.querySelector('.node');
+
+                newNodeRect.setAttribute('width', newPrim.width);
+                newNodeRect.setAttribute('height', newPrim.height);
+
+                // Update interior dimensions
+                const parentElement = newPrim.querySelector('foreignObject');
+                
+                parentElement.setAttribute('width', newPrim.width);
+                parentElement.setAttribute('height', newPrim.height);
+
+                // Interpolate transform
+                const xOffStart = parseFloat(newPrim.getAttribute('x-offset'));
+                const yOffStart = parseFloat(newPrim.getAttribute('y-offset'));
+
+                // The starting relative coordinates of any primary node
+                const initX = centerX - secCenterX;
+                const initY = centerY - secCenterY;
+
+                // The final relative coordinates when it is a secondary node
+                const goalX = centerX - primCenterX;
+                const goalY = centerY - primCenterY;
+
+                // Tracks remaining deltaX and deltaY
+                const remainingX = goalX - initX;
+                const remainingY = goalY - initY;
+
+                // New coordinates calculated based on a damped increment toward the remaining delta X and Y
+                const currentX = (initX) + (dampingFunction * remainingX);
+                const currentY = (initY) + (dampingFunction * remainingY);
+
+                //console.log("Current X: ", currentX);
+                //console.log("Damping factor: ", dampingFunction);
+
+                // Set coordinates and account for inherent offsets
+                newPrim.setAttribute('transform', `translate(${(currentX) - xOffStart}, ${(currentY) - yOffStart})`);
+
+                // Make title bigger
+                const titleElement = parentElement.querySelector('foreignObject h3');
+                titleElement.style.fontSize = `${primTitleSize}px`;
+                titleElement.style.marginTop = `${primTitleMarginTop}px`;
+                titleElement.style.marginBottom = `${primTitleMarginBottom}px`;
+                titleElement.style.cursor = primTitleCursor;
+
+                // Update image styling
+                const imgElement = parentElement.querySelector('foreignObject img');
+                imgElement.style.maxWidth = `${primaryImageWidth}px`;
+                imgElement.style.maxHeight = `${primaryImageHeight}px`;
+                imgElement.style.borderRadius = `${primImgBorderRadius}px`;
+                imgElement.style.cursor = primImgCursor;
+
+                // Make description visible
+                const descElement = parentElement.querySelector('foreignObject p');
+                descElement.style.visibility = primDescVis;
+            }
+
+
+
+            function updateTransforms() {
+
+                // Apply translations and scale to canvas
+                canvasContent.setAttribute('transform', `translate( ${state.translateX}, ${state.translateY}) scale( ${state.scale})`);
+            }
+
+
+
+            function renderPrimaryConnections() {
+
+                // For every connection group...
+                nodeConnections.forEach(node => {
+
+                    // Store the source node, make it opaque
+                    const sourceID = node.id;
+                    const sourceNode = document.querySelector(`[id = "${node.id}"]`);
+                    sourceNode.style.opacity = 1.0;
+                    
+                    // Acquire the types' name:id pairs from the group
+                    const connectionTypes = Object.entries(node);
+
+                    // For each name:id pair (called a typePair)...
+                    connectionTypes.forEach(typePair => {
+
+                        // Count the number of nodes associated with this type of connection
+                        const iterLength = typePair[1].length;
+
+                        // Skip the ID line
+                        if (typePair !== connectionTypes[0]) {
+
+                            //console.log("typePair = ", typePair);
+                            //console.log("Number of Connections: ", iterLength);
+                            
+                            // ...capture the specific node based on its id
+                            for (let i = 0; i < iterLength; i++) {
+                                const associatedNodeByID = document.querySelector(`[id = "${typePair[1][i]}"]`);
+
+                                //console.log("Node by Id: ", associatedNodeByID);
+
+                                associatedNodeByID.style.opacity = 1.0;
+                            }
+
+                        }
+
+                        // For other lines, d
+
+                        
+                    });
+
+                });
+            }
+
+
+
+
+
+
+            // --- Apply Zoom Logic --- //
+
+            viewport.addEventListener('wheel', (e) => {
+
+                // Prevents page scrolling
+                e.preventDefault();
+
+                // Set limits for zoom scale, and set zoom rate
+                const zoomIntensity = 0.05;
+                const minScale = 0.15;
+                const maxScale = 4.0;
+
+                // Get mouse coordinates
+                const rect = viewport.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                // Scale coordinates pre-zoom
+                const canvasMouseX = (mouseX - state.translateX) / state.scale;
+                const canvasMouseY = (mouseY - state.translateY) / state.scale;
+
+                // Determine increment per scale
+                const previousScale = state.scale;
+
+                if (e.deltaY < 0) {
+                    //For scaling up
+                    state.scale = Math.min(state.scale + zoomIntensity, maxScale);
+                } else { // For scaling down
+                    state.scale = Math.max(state.scale - zoomIntensity, minScale);
+                }
+
+                // Recalculate canvas origin
+                state.translateX = mouseX - (canvasMouseX * state.scale);
+                state.translateY = mouseY - (canvasMouseY * state.scale);
+
+                updateTransforms();
+
+            }, {passive: false});
+
+
+
+
+
+            
+
+            // Disables R-click context menu in favor of panning
+            window.addEventListener('contextmenu', e => e.preventDefault());
+
+
+
+
+
+
+
+            // --- Event Manager --- //
+
+            
+            // When clicking down...
+            viewport.addEventListener('mousedown', (e) => {
+                const selectedNode = e.target.closest('.node-element'); // Record the clicked node
+
+                // If no node was clicked, either button starts panning
+                if (!selectedNode && (e.button === 0 || e.button === 2)) {
+                    state.isPanning = true;
+                    state.panStartX = e.clientX - state.translateX;
+                    state.panStartY = e.clientY - state.translateY;
+                } else if (e.button === 2) { // R-button can still initiate panning
+                    viewport.style.cursor = "grabbing";
+
+                    state.isPanning = true;
+                    state.panStartX = e.clientX - state.translateX;
+                    state.panStartY = e.clientY - state.translateY;
+                } 
+            });
+
+            // Adjust states if interactions are occurring
+            window.addEventListener('mousemove', (e) => {
+
+                // Track panning translations
+                if (state.isPanning) {
+                    state.translateX = e.clientX - state.panStartX;
+                    state.translateY = e.clientY - state.panStartY;
+                    updateTransforms();
+                }
+
+                // If a node has been selected and is being dragged, track and store the coordinate offset
+                else if (state.isDraggingNode && state.primaryNode) {
+                    const rect = viewport.getBoundingClientRect();
+                    const currentCanvasMouseX = (e.clientX - rect.left - state.translateX) / state.scale;
+                    const currentCanvasMouseY = (e.clientY - rect.top - state.translateY) / state.scale;
+                }
+
+            });
+
+
+            // Reset interactive states when releasing mouse button
+            window.addEventListener('mouseup', (e) => {
+                viewport.style.cursor = "grab";
+                const selectedNode = e.target.closest('.node-element');
+
+                // If a node is clicked by the L-mouse button, set it as the primary node
+                if (selectedNode && e.button === 0) {
+
+                    // Calculate screen-based coordinates
+                    const rect = viewport.getBoundingClientRect();
+                    const mouseX = (e.clientX - rect.left - state.translateX) / state.scale;
+                    const mouseY = (e.clientY - rect.top - state.translateY) / state.scale;
+                }
+
+                state.isPanning = false;
+                state.isDraggingNode = false;
+
+                // Unless clicking the interstitial space, update and log the new Primary Node
+                if (selectedNode) {
+                    console.log(selectedNode.getAttribute('id'), ": ", selectedNode.getAttribute('title'));
+                    switchPrimary(selectedNode);
+                }
+            });
+
+
+            buildNodes();
+            updateTransforms();
+            renderPrimaryConnections();
+
+        </script>
+
+    </body>
+</html>
